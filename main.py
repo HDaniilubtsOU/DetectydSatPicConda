@@ -1,5 +1,6 @@
 from osgeo import gdal
 from osgeo import ogr, osr, gdal_array, gdalconst
+from matplotlib import colormaps
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.image as mpimg
@@ -11,110 +12,7 @@ import textwrap
 # 1) Спутники наблюдения за Землей (Landsat: 9 каналов) 2) Метеорологические спутники (NOAA AVHRR: 5 кан.)
 # 3) Гиперспектральные спутники (Hyperion: до 220 спектральных каналов в узких диапазонах,
 # охватывающих видимый и инфракрасный спектр)
-# ___________________________________________________normalize_________________________________________________________
-# imagery_ds = gdal.Open('data/multiband_imagery.tif', gdal.GA_ReadOnly)
-# # print ('Bands count: %s' % imagery_ds.RasterCount)
-#
-# # Получаем количество каналов
-# bands = imagery_ds.RasterCount
-# print(f'Количество каналов: {bands}')
-#
-#
-# channels = []
-# # Получаем описание каждого канала
-# for i in range(1, bands + 1):
-#     # Предполагаем, что у вас 4 канала
-#     band = imagery_ds.GetRasterBand(i)
-#     channels.append(band.ReadAsArray())
-#
-#     # data = band.ReadAsArray()
-#     # plt.imshow(data, cmap='gray')
-#     # plt.title(f'Канал {i}')
-#     # plt.colorbar()
-#     # plt.show()
-#
-# # Например, RGB и NIR:
-# red, green, blue, nir = channels
-# # print(f"Минимум и максимум в красном канале: {red.min()}, {red.max()}")
-# # print(f"Минимум и максимум в зеленом канале: {green.min()}, {green.max()}")
-# # print(f"Минимум и максимум в голубом канале: {blue.min()}, {blue.max()}")
-# # print(f"Минимум и максимум в нир канале: {nir.min()}, {nir.max()}")
-#
-# # Применение контрастного растяжения
-# red_stretched = exposure.equalize_hist(red)
-# green_stretched = exposure.equalize_hist(green)
-# blue_stretched = exposure.equalize_hist(blue)
-# nir_stretched = exposure.equalize_hist(nir)
-#
-# # нормализация значений канала относительно глобального максимума
-# red_norm = np.clip(red / red.max(), 0, 1)
-# green_norm = np.clip(green / green.max(), 0, 1)
-# blue_norm = np.clip(blue / blue.max(), 0, 1)
-# nir_norm = np.clip(nir / nir.max(), 0, 1)
-# # print(f"Normalize для красного канала: {red_norm.min()}, {red_norm.max()}")
-# # print(f"Normalize для зеленого канала: {green_norm.min()}, {green_norm.max()}")
-# # print(f"Normalize для голубого канала: {blue_norm.min()}, {blue_norm.max()}")
-# # print(f"Normalize для нир канала: {nir_norm.min()}, {nir_norm.max()}")
-#
-# # Применение контрастного растяжения
-# red_stretched_norm = np.clip(red_stretched / red_stretched.max(), 0, 1)
-# green_stretched_norm = np.clip(green_stretched / green_stretched.max(), 0, 1)
-# blue_stretched_norm = np.clip(blue_stretched / blue_stretched.max(), 0, 1)
-# nir_stretched_norm = np.clip(nir_stretched / nir_stretched.max(), 0, 1)
-#
-# # plt.imshow(red, cmap='gray')
-# # plt.title(f'Канал Red')
-# # plt.colorbar()
-# # plt.show()
-#
 
-# # описываем функцию, которая будет нормализовать значения канала в диапазон от 0 до 1 (линейная нормализация используется для более естественного результата)
-# def normalize(input_band):
-#     min_value, max_value = input_band.min() * 1.0, input_band.max() * 1.0
-#     return (input_band * 1.0 - min_value * 1.0) / (max_value * 1.0 - min_value)
-# # описываем функцию, которая будет нормализовать значения канала с удалением выбросов
-# def normalize2(input_band, clip_percentile=2):
-#     lower, upper = np.percentile(input_band, (clip_percentile, 100 - clip_percentile))
-#     clipped_band = np.clip(input_band, lower, upper)
-#     return (clipped_band - lower) / (upper - lower)
-# # Эта ^^^ версия обрезает выбросы (например, верхние и нижние 2% значений), что помогает сгладить сильные отклонения.
-#
-#
-#
-# imagery_ds_data = imagery_ds.ReadAsArray()
-# # print (imagery_ds_data.shape)
-#
-# # собираем матрицу из нормализованных каналов
-# rgb_normalized = np.dstack([normalize(imagery_ds_data[2]),
-#                             normalize(imagery_ds_data[1]),
-#                             normalize(imagery_ds_data[0])])
-# # plt.imshow(rgb_normalized)
-# # plt.title("RGB 0-1")
-# # plt.axis('off')
-# # plt.show()
-#
-# rgb_normalized_nir = np.dstack([normalize(imagery_ds_data[3])])
-#
-# # собираем матрицу из нормализованных каналов
-# rgb_normalized2 = np.dstack([normalize2(imagery_ds_data[2]),
-#                             normalize2(imagery_ds_data[1]),
-#                             normalize2(imagery_ds_data[0])])
-# # plt.imshow(rgb_normalized2)
-# # plt.title("RGB с удалением выбросов")
-# # plt.axis('off')
-# # plt.show()
-#
-# rgb_normalized_nir2 = np.dstack([normalize2(imagery_ds_data[3])])
-#
-# rgb_image_normalized = np.dstack((red_norm, green_norm, blue_norm))
-# # plt.imshow(rgb_image)
-# # plt.title("RGB Глобальный максимум")
-# # plt.axis('off')
-# # plt.show()
-#
-# # # Закрываем набор данных
-# # imagery_ds = None
-# ___________________________________________________normalize_________________________________________________________
 
 # Функция для открытия изображения
 def open_multiband_image(file_path):
@@ -183,6 +81,9 @@ def normalize_band_global_max(input_band):
     :param input_band: Массив данных канала
     :return: Нормализованный массив
     """
+    max_value = input_band.max()
+    if max_value == 0:
+        return np.zeros_like(input_band)  # Возвращает массив из нулей, если максимум равен 0
     return np.clip(input_band / input_band.max(), 0, 1)
 
 
@@ -212,6 +113,108 @@ def normalize_with_delite_emissions(input_band, clip_percentile = 2):
     clipped_band = np.clip(input_band, lower, upper)
     return (clipped_band - lower) / (upper - lower)
 # Эта ^^^ версия обрезает выбросы (например, верхние и нижние 2% значений), что помогает сгладить сильные отклонения.
+
+
+# Применяется для оценки состояния растительности. Значения близкие к 1 указывают на плотный растительный покров.
+def calculate_ndvi(nir_channel, red_channel, epsilon=1e-10):
+    """
+    Вычисляет индекс NDVI (Normalized Difference Vegetation Index).
+
+    :param nir_channel: Массив данных ближнего инфракрасного канала (NIR)
+    :param red_channel: Массив данных красного канала (Red)
+    :param epsilon: Небольшое число для предотвращения деления на ноль
+    :return: Массив NDVI с диапазоном значений от -1 до 1
+    """
+    # Преобразуем данные в формат с плавающей точкой для точности вычислений
+    nir = nir_channel.astype(float)    # float16 / 32
+    red = red_channel.astype(float)
+
+    # Вычисляем NDVI с защитой от деления на ноль
+    ndvi = (nir - red) / (nir + red + epsilon)
+
+    # # Обработка деления на ноль (замена NaN на 0)
+    # ndvi = np.nan_to_num(ndvi)
+    # ndvi[np.isnan(ndvi)] = 0  # Убираем NaN значения
+
+    return ndvi
+
+
+def classify_ndvi(ndvi):
+    """
+    Классифицирует NDVI по категориям.
+
+    :param ndvi: Массив NDVI значений
+    :return: Массив категорий NDVI
+    """
+    # classification = np.zeros_like(ndvi, dtype=np.uint8)
+    classification_ndvi = np.zeros_like(ndvi)
+
+    # Условия классификации
+    classification_ndvi[(ndvi >= -1) & (ndvi < 0)] = 1  # Вода
+    classification_ndvi[(ndvi >= 0) & (ndvi < 0.2)] = 2  # Слабая растительность
+    classification_ndvi[(ndvi >= 0.2) & (ndvi < 0.5)] = 3  # Умеренная растительность
+    classification_ndvi[(ndvi >= 0.5)] = 4  # Плотная растительность
+
+    return classification_ndvi
+
+
+# Усиленный вегетационный индекс (EVI) используется для улучшения оценки плотности растительности,
+# устраняя атмосферные эффекты и влияние почвы.
+# def calculate_evi(nir, red, blue, G=2.5, C1=6.0, C2=7.5, L=1.0):
+def calculate_evi(nir, red, blue, G=2.5, C1=6.0, C2=7.5, L=1.0):
+    """
+    Рассчитывает индекс EVI.
+
+    :param nir: Ближний инфракрасный канал.
+    :param red: Красный канал.
+    :param blue: Синий канал.
+    :param G: Коэффициент усиления.
+    :param C1: Коэффициент для коррекции атмосферы (Red).
+    :param C2: Коэффициент для коррекции атмосферы (Blue).
+    :param L: Поправочный коэффициент.
+    :return: EVI массив.
+    """
+    nir = nir.astype(float)
+    red = red.astype(float)
+    blue = blue.astype(float)
+    denominator = (nir + C1 * red - C2 * blue + L)
+    evi = G * (nir - red) / denominator
+
+    # Обработка NaN и бесконечных значений
+    evi[np.isnan(evi)] = 0
+    evi[np.isinf(evi)] = 0
+    return evi
+
+
+def classify_evi(ndvi):
+    """
+    Классифицирует NDVI по категориям.
+
+    :param ndvi: Массив NDVI значений
+    :return: Массив категорий NDVI
+    """
+    # classification = np.zeros_like(ndvi, dtype=np.uint8)
+    classification_ndvi = np.zeros_like(ndvi)
+
+    # Условия классификации
+    classification_ndvi[(ndvi >= -1) & (ndvi < 0)] = 1  # Вода
+    classification_ndvi[(ndvi >= 0) & (ndvi < 0.2)] = 2  # Слабая растительность
+    classification_ndvi[(ndvi >= 0.2) & (ndvi < 0.6)] = 3  # Умеренная растительность
+    classification_ndvi[(ndvi >= 0.6)] = 4  # Плотная растительность
+
+    return classification_ndvi
+
+
+# Функция для контрастного растяжения
+def rescale_intensity(input_band):
+    """
+    Применяет контрастное растяжение к каналу с помощью гистограммы.
+
+    :param input_band: Массив данных канала
+    :return: Массив с растянутым контрастом
+    """
+    # return exposure.rescale_intensity(input_band, in_range='image', out_range=(0, 1))
+    return exposure.rescale_intensity(input_band, in_range='image', out_range=(0, 1))
 
 
 # Функция для контрастного растяжения
@@ -254,6 +257,137 @@ def plot_rgb(red, green, blue, title="RGB Composite"):
     plt.imshow(rgb_image)
     plt.title(title)
     plt.axis('off')
+    plt.show()
+
+
+def plot_ndvi(ndvi, title="Ndvi Map"):
+    """
+    Визуализирует NDVI.
+
+    :param ndvi: Массив NDVI.
+    :param title: Заголовок графика.
+    """
+    # plt.imshow(ndvi, cmap='jet', vmin=-1, vmax=1)          # крутой стиль, не нрав
+    # plt.imshow(ndvi, cmap='BrBG', vmin=-1, vmax=1)         # тоже неплох
+    plt.imshow(ndvi, cmap='RdYlGn', vmin=-1, vmax=1)
+    plt.colorbar(label="Ndvi Value")
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_classification_ndvi(classified_ndvi, title="NDVI Classification"):
+    """
+    Визуализирует классифицированный NDVI.
+
+    :param classified_ndvi: Классифицированный массив NDVI.
+    :param title: Заголовок графика.
+    """
+    cmap = plt.get_cmap("Set3", 4)
+    # cmap = colormaps.get_cmap("Set3").resampled(4)
+    plt.imshow(classified_ndvi, cmap=cmap, vmin=1, vmax=4)
+    plt.colorbar(ticks=[1, 2, 3, 4], label="Classes")
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_evi(evi, title="Evi Map"):
+    """
+    Визуализирует Evi.
+
+    :param evi: Массив NDVI.
+    :param title: Заголовок графика.
+    """
+    plt.imshow(evi, cmap='viridis', vmin=-1, vmax=1)
+    plt.colorbar(label="Evi Value")
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_classification_evi(classified_evi, title="NDVI Classification"):
+    """
+    Визуализирует классифицированный NDVI.
+
+    :param classified_evi: Классифицированный массив NDVI.
+    :param title: Заголовок графика.
+    """
+    cmap = plt.get_cmap("Set3", 4)
+    # cmap = colormaps.get_cmap("Set3").resampled(4)
+    plt.imshow(classified_evi, cmap=cmap, vmin=1, vmax=4)
+    plt.colorbar(ticks=[1, 2, 3, 4], label="Classes")
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_quantity_three_single_channel(channel1, channel2, channel3,
+                                       titles=("Channel 1", "Channel 2", "Channel 3"),
+                                       colormap='gray'):
+    """
+    Визуализирует три отдельных канала в одном окне.
+
+    :param channel1: Первый канал (например, NIR)
+    :param channel2: Второй канал (например, NIR обработанный)
+    :param channel3: Третий канал (например, NIR с фильтром)
+    :param titles: Кортеж заголовков для каждого изображения
+    :param colormap: Цветовая карта для отображения каналов (по умолчанию 'gray')
+    """
+
+    # Создание фигуры и трёх подграфиков
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))  # 1 строка, 3 столбца
+
+    # Первое изображение
+    axs[0].imshow(channel1, cmap=colormap)
+    axs[0].set_title(titles[0])
+    axs[0].axis('off')
+
+    # Второе изображение
+    axs[1].imshow(channel2, cmap=colormap)
+    axs[1].set_title(titles[1])
+    axs[1].axis('off')
+
+    # Третье изображение
+    axs[2].imshow(channel3, cmap=colormap)
+    axs[2].set_title(titles[2])
+    axs[2].axis('off')
+
+    # Отображение графиков
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_histograms_three_single_channel(pic1, pic2, pic3, titles=("Channel 1", "Channel 2", "Channel 3")):
+    """
+    Визуализирует гистограммы трёх одиночных каналов в одном окне.
+
+    :param pic1: Первый изображение (например, NIR)
+    :param pic2: Второй изображение (например, NIR обработанный)
+    :param pic3: Третий изображение (например, NIR с фильтром)
+    :param titles: Кортеж заголовков для каждого канала
+    """
+    fig_h, axs_h = plt.subplots(3, 1, figsize=(10, 15))  # 3 строки, 1 столбец
+
+    # Вспомогательная функция для построения гистограммы одного изображения
+    def plot_histogram(ax_h, pic, title):
+        ax_h.hist(pic.ravel(), bins=256, color='yellow', alpha=0.5, label='yellow')
+        ax_h.set_title(title)
+        ax_h.set_xlabel('Intensity')
+        ax_h.set_ylabel('Frequency')
+        ax_h.legend()
+
+    # Гистограмма для первого канала
+    plot_histogram(axs_h[0], pic1, titles[0])
+
+    # Гистограмма для второго канала
+    plot_histogram(axs_h[1], pic2, titles[1])
+
+    # Гистограмма для третьего канала
+    plot_histogram(axs_h[2], pic3, titles[2])
+
+    # Автоматическое выравнивание
+    plt.tight_layout()
     plt.show()
 
 
@@ -339,7 +473,8 @@ def plot_histograms_three(red1, green1, blue1,
 
 # Основной скрипт
 if __name__ == "__main__":
-    file_path = 'data/multiband_imagery.tif'
+    # file_path = 'data/multiband_imagery.tif'
+    file_path = '050160619050_01_P001_MUL/22MAR06104502-M3DS_R1C1-050160619050_01_P001.TIF'
     imagery_ds, num_bands = open_multiband_image(file_path)
 
     # Извлечение каналов
@@ -410,28 +545,27 @@ if __name__ == "__main__":
               )
     print("\n")
 
-    # Примеры обработки
-    # if "Red" in named_channels and "Green" in named_channels and "Blue" in named_channels:
-    if Red is not None and Green is not None and Blue is not None:
-        plot_rgb(
-            normalize_band_global_max(Red),
-            normalize_band_global_max(Green),
-            normalize_band_global_max(Blue),
-        )
-
-    if Red is not None and Green is not None and Blue is not None:
-        plot_rgb(
-            line_normalize(Red),
-            line_normalize(Green),
-            line_normalize(Blue),
-        )
-
-    if Red is not None and Green is not None and Blue is not None:
-        plot_rgb(
-            normalize_with_delite_emissions(Red),
-            normalize_with_delite_emissions(Green),
-            normalize_with_delite_emissions(Blue),
-        )
+    # # if "Red" in named_channels and "Green" in named_channels and "Blue" in named_channels:
+    # if Red is not None and Green is not None and Blue is not None:
+    #     plot_rgb(
+    #         normalize_band_global_max(Red),
+    #         normalize_band_global_max(Green),
+    #         normalize_band_global_max(Blue),
+    #     )
+    #
+    # if Red is not None and Green is not None and Blue is not None:
+    #     plot_rgb(
+    #         line_normalize(Red),
+    #         line_normalize(Green),
+    #         line_normalize(Blue),
+    #     )
+    #
+    # if Red is not None and Green is not None and Blue is not None:
+    #     plot_rgb(
+    #         normalize_with_delite_emissions(Red),
+    #         normalize_with_delite_emissions(Green),
+    #         normalize_with_delite_emissions(Blue),
+    #     )
 
     if Red is not None and Green is not None and Blue is not None:
         red1, green1, blue1 = \
@@ -454,15 +588,17 @@ if __name__ == "__main__":
             red3, green3, blue3,
             titles=("Default Normalize (global_max)", "Line Normalize", "Clip Normalize")
         )
-
+        # -----------------------------------Histograms---------------------------------------------------------------
         # Вызов функции для отображения гистограмм
-        plot_histograms_three(
-            red1, green1, blue1,
-            red2, green2, blue2,
-            red3, green3, blue3,
-            titles=("Default Normalize Histogram", "Line Normalize Histogram", "Clip Normalize Histogram")
-        )
+        # plot_histograms_three(
+        #     red1, green1, blue1,
+        #     red2, green2, blue2,
+        #     red3, green3, blue3,
+        #     titles=("Default Normalize Histogram", "Line Normalize Histogram", "Clip Normalize Histogram")
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
 
+# -------------------------------------stretch_contrast---------------------------------------------------------------
     if Red is not None and Green is not None and Blue is not None:
         # Предположим, у вас есть три набора нормализованных RGB-каналов
         red1, green1, blue1 = \
@@ -478,32 +614,154 @@ if __name__ == "__main__":
             stretch_contrast(normalize_with_delite_emissions(Green)), \
             stretch_contrast(normalize_with_delite_emissions(Blue))
 
-        # Вызов функции для визуализации
-        plot_quantity_three_rgb(
-            red1, green1, blue1,
-            red2, green2, blue2,
-            red3, green3, blue3,
-            titles=("Default Normalize (global_max)", "Line Normalize", "Clip Normalize")
-        )
+        # # Вызов функции для визуализации
+        # plot_quantity_three_rgb(
+        #     red1, green1, blue1,
+        #     red2, green2, blue2,
+        #     red3, green3, blue3,
+        #     titles=("Default Normalize (global_max)", "Line Normalize", "Clip Normalize")
+        # )
+#         # -----------------------------------Histograms---------------------------------------------------------------
+#         # Вызов функции для отображения гистограмм
+#         # plot_histograms_three(
+#         #     red1, green1, blue1,
+#         #     red2, green2, blue2,
+#         #     red3, green3, blue3,
+#         #     titles=("Default Normalize Histogram", "Line Normalize Histogram", "Clip Normalize Histogram")
+#         # )
+#         # -----------------------------------Histograms---------------------------------------------------------------
+# -------------------------------------stretch_contrast---------------------------------------------------------------
 
-        # Вызов функции для отображения гистограмм
-        plot_histograms_three(
-            red1, green1, blue1,
-            red2, green2, blue2,
-            red3, green3, blue3,
-            titles=("Default Normalize Histogram", "Line Normalize Histogram", "Clip Normalize Histogram")
-        )
+    # if NIR is not None:
+    #     plot_band(normalize_band_global_max(NIR), "Ближний инфракрасный (NIR) normalize_band_global_max")
+    #
+    # if NIR is not None:
+    #     plot_band(line_normalize(NIR), "Ближний инфракрасный (NIR) line_normalize")
+    #
+    # if NIR is not None:
+    #     plot_band(normalize_with_delite_emissions(NIR), "Ближний инфракрасный (NIR) normalize_with_delite_emissions")
 
     if NIR is not None:
-        plot_band(normalize_band_global_max(NIR), "Ближний инфракрасный (NIR) normalize_band_global_max")
+        # Используем NIR канал (и его модификации)
+        nir1 = normalize_band_global_max(NIR)  # Исходный канал
+        nir2 = line_normalize(NIR)  # Линейная нормализация
+        nir3 = normalize_with_delite_emissions(NIR)  # Нормализация с удалением выбросов
 
-    if NIR is not None:
-        plot_band(line_normalize(NIR), "Ближний инфракрасный (NIR) line_normalize")
+        # # Вызов функции для визуализации
+        # plot_quantity_three_single_channel(
+        #     nir1, nir2, nir3,
+        #     titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize"),
+        #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+        # Построение гистограмм
+        # plot_histograms_three_single_channel(
+        #     nir1, nir2, nir3,
+        #     titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize")
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
 
-    if NIR is not None:
-        plot_band(normalize_with_delite_emissions(NIR), "Ближний инфракрасный (NIR) normalize_with_delite_emissions")
+# ---------------------------------------ndvi_normalize---------------------------------------------------------------
+    if Red is not None and Green is not None and Blue is not None and NIR is not None:
+        # Вычисление NDVI
+        ndvi_normalize_band_global_max = calculate_ndvi(normalize_band_global_max(NIR), normalize_band_global_max(Red))
+        ndvi_line_normalize = calculate_ndvi(line_normalize(NIR), line_normalize(Red))
+        ndvi_normalize_with_delite_emissions = calculate_ndvi(normalize_with_delite_emissions(NIR),
+                                                              normalize_with_delite_emissions(Red))
 
+        # plot_ndvi(ndvi_normalize_band_global_max)
+        # plot_ndvi(ndvi_line_normalize)
+        # plot_ndvi(ndvi_normalize_with_delite_emissions)
 
+        # plot_quantity_three_single_channel(
+        #     ndvi_normalize_band_global_max, ndvi_line_normalize, ndvi_normalize_with_delite_emissions,
+        #     titles=("Ndvi Original", "Ndvi Line Normalize", "Ndvi Clip Normalize"),
+        #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+        # # Построение гистограмм
+        # plot_histograms_three_single_channel(
+        #     ndvi_normalize_band_global_max, ndvi_line_normalize, ndvi_normalize_with_delite_emissions,
+        #     titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize")
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+
+        # Классификация NDVI
+        ndvi_classification_normalize_band_global_max = classify_ndvi(ndvi_normalize_band_global_max)
+        ndvi_classification_line_normalize = classify_ndvi(ndvi_line_normalize)
+        ndvi_classification_normalize_with_delite_emissions = classify_ndvi(ndvi_normalize_with_delite_emissions)
+
+        plot_classification_ndvi(ndvi_classification_normalize_band_global_max)
+        plot_classification_ndvi(ndvi_classification_line_normalize)
+        plot_classification_ndvi(ndvi_classification_normalize_with_delite_emissions)
+
+        # plot_quantity_three_single_channel(
+        #     ndvi_classification_normalize_band_global_max, ndvi_classification_line_normalize,
+        #     ndvi_classification_normalize_with_delite_emissions,
+        #     titles=("Ndvi_classification Original", "Ndvi_classification Line Normalize",
+        #             "Ndvi_classification Clip Normalize"),
+        #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+        # # Построение гистограмм
+        # plot_histograms_three_single_channel(
+        #     ndvi_classification_normalize_band_global_max, ndvi_classification_line_normalize,
+        #     ndvi_classification_normalize_with_delite_emissions,
+        #     titles=("Ndvi Original", "Ndvi Line Normalize", "Ndvi Clip Normalize")
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+
+        rgb = np.dstack([normalize_with_delite_emissions(Red), normalize_with_delite_emissions(Green),
+                         normalize_with_delite_emissions(Blue)])
+
+        # plot_quantity_three_single_channel(
+        #     rgb, normalize_with_delite_emissions(NIR),
+        #     ndvi_classification_normalize_band_global_max,
+        #     titles=("Rgb normalize_with_delite_emissions", "NIR line_normalize",
+        #             "Ndvi_classification global_max"),
+        #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
+        # )
+
+    # 3 rgb -> 2 nir -> 1 ndvi? (гистограма говорит 3) -> непонятно classification ->
+
+# ----------------------------------------EVI_normalize---------------------------------------------------------------
+
+# ----------------------------------------EVI_normalize---------------------------------------------------------------
+    if Red is not None and Green is not None and Blue is not None and NIR is not None:
+        # Вычисление EVI
+        evi_normalize_band_global_max = calculate_evi(normalize_band_global_max(NIR), normalize_band_global_max(Red),
+                                                      normalize_band_global_max(Blue))
+        evi_line_normalize = calculate_evi(line_normalize(NIR), line_normalize(Red), line_normalize(Blue))
+        evi_normalize_with_delite_emissions = calculate_evi(normalize_with_delite_emissions(NIR),
+                                                            normalize_with_delite_emissions(Red),
+                                                            normalize_with_delite_emissions(Blue))
+
+        # plot_evi(evi_normalize_band_global_max)
+        # plot_evi(evi_line_normalize)
+        # plot_evi(evi_normalize_with_delite_emissions)
+
+        evi_classification_normalize_band_global_max = classify_evi(evi_normalize_band_global_max)
+        evi_classification_line_normalize = classify_evi(evi_line_normalize)
+        evi_classification_normalize_with_delite_emissions = classify_evi(evi_normalize_with_delite_emissions)
+
+        plot_classification_evi(evi_classification_normalize_band_global_max)
+        plot_classification_evi(evi_classification_line_normalize)
+        plot_classification_evi(evi_classification_normalize_with_delite_emissions)
+
+        # plot_quantity_three_single_channel(
+        #     evi_normalize_band_global_max, evi_line_normalize, evi_normalize_with_delite_emissions,
+        #     titles=("EVI Original", "EVI Line Normalize", "EVI Clip Normalize"),
+        #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
+        # )
+
+        # -----------------------------------Histograms---------------------------------------------------------------
+        # # Построение гистограмм
+        # plot_histograms_three_single_channel(
+        #     ndvi_normalize_band_global_max, ndvi_line_normalize, ndvi_normalize_with_delite_emissions,
+        #     titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize")
+        # )
+        # -----------------------------------Histograms---------------------------------------------------------------
+# ---------------------------------------ndvi_normalize---------------------------------------------------------------
 
 
 
@@ -521,36 +779,4 @@ if __name__ == "__main__":
 
     if TIR is not None:
         plot_band(normalize_band_global_max(TIR), "Тепловое инфракрасное излучение (TIR)")
-
-
-
-    # # Нормализация
-    # red_norm = normalize_band_global_max(red)
-    # green_norm = normalize_band_global_max(green)
-    # blue_norm = normalize_band_global_max(blue)
-    # nir_norm = normalize_band_global_max(nir)
-
-    # # Применение контрастного растяжения
-    # red_stretched = stretch_contrast(red)
-    # green_stretched = stretch_contrast(green)
-    # blue_stretched = stretch_contrast(blue)
-    # nir_stretched = stretch_contrast(nir)
-
-    # # Нормализация растянутых каналов
-    # red_stretched_norm = normalize_band_global_max(red_stretched)
-    # green_stretched_norm = normalize_band_global_max(green_stretched)
-    # blue_stretched_norm = normalize_band_global_max(blue_stretched)
-    # nir_stretched_norm = normalize_band_global_max(nir_stretched)
-
-    # # Визуализация каналов
-    # plot_band(red, "Красный канал")
-    # plot_band(green, "Зеленый канал")
-    # plot_band(blue, "Синий канал")
-    # plot_band(nir, "NIR канал")
-
-    # # Визуализация RGB с нормализацией
-    # plot_rgb(red_norm, green_norm, blue_norm, "RGB (нормализованное)")
-    #
-    # # Визуализация RGB с растянутым контрастом
-    # plot_rgb(red_stretched_norm, green_stretched_norm, blue_stretched_norm, "RGB (растянутый контраст)")
 
