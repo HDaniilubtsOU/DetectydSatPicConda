@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.image as mpimg
 from skimage import exposure
+import cv2 as cv
 
 
 # ______________________________________digital_elevation_model.tif____________________________________________________
@@ -528,3 +529,443 @@ nir_equalize.axis('off')
 
 # Отображаем объединенное окно
 plt.show()
+
+
+
+# удаление черной херни
+def check_and_crop_image(dataset):
+    """
+    Проверяет, нужно ли обрезать изображение. Если да, то обрезает и возвращает обрезанный массив,
+    а также обновлённые параметры геопривязки. Если обрезка не нужна, возвращает исходные данные.
+
+    :param dataset: GDAL Dataset — открытый объект GDAL
+    :return: tuple:
+        - image_array: numpy.ndarray — (bands, height, width), обрезанное или исходное изображение
+        - transform: tuple — геопривязка изображения
+        - projection: str — проекция изображения
+    """
+    # Получаем данные
+    bands = dataset.RasterCount
+    transform = dataset.GetGeoTransform()
+    projection = dataset.GetProjection()
+
+    # Читаем все каналы в массивы
+    arrays = [dataset.GetRasterBand(i + 1).ReadAsArray() for i in range(bands)]
+    stacked_image = np.stack(arrays, axis=0)  # (bands, height, width)
+
+    # Преобразуем изображение в формат OpenCV (height, width, bands)
+    stacked_image_cv = np.moveaxis(stacked_image, 0, -1)
+
+    # Преобразуем в градации серого
+    gray = np.mean(stacked_image_cv, axis=-1).astype(np.uint8)
+
+    # Бинаризация (черные пиксели становятся 0, остальные - 255)
+    _, binary = cv.threshold(gray, 1, 255, cv.THRESH_BINARY)
+
+    # Находим контуры полезной области
+    contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    # if not contours:
+    #     raise ValueError("Все данные на изображении пустые или черные.")
+    #
+    # # Объединяем все контуры и находим ограничивающий прямоугольник
+    # contour = max(contours, key=cv.contourArea)
+    # x, y, w, h = cv.boundingRect(contour)
+    #
+    # # Обрезаем изображение до найденной полезной области
+    # cropped_image = stacked_image[:, y:y + h, x:x + w]
+    #
+    # # Вычисляем новую геопривязку
+    # new_transform = (
+    #     transform[0] + x * transform[1],  # Новое начало по X
+    #     transform[1],
+    #     transform[2],
+    #     transform[3] + y * transform[5],  # Новое начало по Y
+    #     transform[4],
+    #     transform[5],
+    # )
+    # # Если контуры найдены, обрезаем по найденным границам
+    # if contours:
+    #     # Объединяем все контуры и находим ограничивающий прямоугольник
+    #     x, y, w, h = cv.boundingRect(np.vstack(contours))  # Получаем ограничивающий прямоугольник
+    # else:
+    #     # Если контуры не найдены, обрезка не требуется
+    #     x, y, w, h = 0, 0, stacked_image.shape[2], stacked_image.shape[1]
+    #
+    # # Проверяем, есть ли необходимость в обрезке
+    # if (x == 0 and y == 0 and w == stacked_image.shape[2] and h == stacked_image.shape[1]):
+    #     print("Обрезка не требуется.")
+    #     return stacked_image, transform, projection
+    #
+    # # Если чёрные зоны есть, обрезаем
+    # cropped_image = stacked_image[:, y:y + h, x:x + w]  # (bands, height, width)
+    #
+    # # Вычисляем новую геопривязку
+    # new_transform = (
+    #     transform[0] + x * transform[1],  # Новое начало по X
+    #     transform[1],
+    #     transform[2],
+    #     transform[3] + y * transform[5],  # Новое начало по Y
+    #     transform[4],
+    #     transform[5],
+    # )
+    #
+    # # Визуализация (необходима для понимания границ полезной области)
+    # plt.imshow(stacked_image_cv)
+    # plt.title('Изображение с реальной границей полезной зоны')
+    #
+    # # Рисуем реальную границу полезной зоны
+    # for contour in contours:
+    #     plt.plot(contour[:, 0, 0], contour[:, 0, 1], color='red', linewidth=2)
+    #
+    # # Отображаем изображение
+    # plt.show()
+    #
+    # print(f"Изображение обрезано до размеров: {cropped_image.shape[1]}x{cropped_image.shape[2]}")
+    #
+    # return cropped_image, new_transform, projection
+
+    if not contours: raise ValueError(
+        "Все данные на изображении пустые или черные.")
+
+    # Объединяем все контуры и находим ограничивающий прямоугольник
+    contour = max(contours, key=cv.contourArea)
+    epsilon = 0.01 * cv.arcLength(contour, True)
+    polygon = cv.approxPolyDP(contour, epsilon, True)
+
+    # Создаем маску на основе многоугольника
+    mask = np.zeros(binary.shape, dtype=np.uint8)
+    cv.fillPoly(mask, [polygon], 1)
+
+    # Обрезаем изображение по маске
+    masked_image = stacked_image * mask
+
+    # Находим границы полезной области
+    rows, cols = np.where(mask)
+    min_row, max_row = rows.min(), rows.max()
+    min_col, max_col = cols.min(), cols.max()
+
+    # Проверка необходимости обрезки
+    if (min_row == 0 and max_row == mask.shape[0] - 1 and min_col == 0 and max_col == mask.shape[1] - 1):
+        print("Обрезка не требуется.")
+        return stacked_image, transform, projection
+
+    # Обрезаем изображение до найденных границ
+    cropped_image = stacked_image[:, min_row:max_row+1, min_col:max_col+1]
+
+    # Вычисляем новую геопривязку
+    new_transform = (
+        transform[0] + min_col * transform[1], # Новое начало по X
+        transform[1],
+        transform[2],
+        transform[3] + min_row * transform[5], # Новое начало по Y
+        transform[4],
+        transform[5],
+    )
+    # Визуализация
+    plt.imshow(stacked_image_cv)
+    plt.title('Изображение с реальной границей полезной зоны')
+    plt.plot(polygon[:, 0, 0], polygon[:, 0, 1], color='red', linewidth=2)
+    plt.show()
+    print(f"Изображение обрезано до размеров: {cropped_image.shape[1]}x{cropped_image.shape[2]}")
+    return cropped_image, new_transform, projection
+
+
+
+
+    # # _______________
+    # # Получаем данные
+    # bands = dataset.RasterCount
+    # transform = dataset.GetGeoTransform()
+    # projection = dataset.GetProjection()
+    #
+    # # Читаем все каналы в массивы
+    # arrays = [dataset.GetRasterBand(i + 1).ReadAsArray() for i in range(bands)]
+    # stacked_image = np.stack(arrays, axis=0)  # (bands, height, width)
+    #
+    # # Преобразуем изображение в формат OpenCV (height, width, bands)
+    # stacked_image_cv = np.moveaxis(stacked_image, 0, -1)
+    #
+    # # Преобразуем в градации серого
+    # gray = np.mean(stacked_image_cv, axis=-1).astype(np.uint8)
+    #
+    # # Бинаризация (черные пиксели становятся 0, остальные - 255)
+    # _, binary = cv.threshold(gray, 1, 255, cv.THRESH_BINARY)
+    #
+    # # Находим контуры полезной области
+    # contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    #
+    # if not contours:
+    #     raise ValueError("Все данные на изображении пустые или черные.")
+    #
+    # # Объединяем все контуры и находим ограничивающий прямоугольник
+    # contour = max(contours, key=cv.contourArea)
+    # x, y, w, h = cv.boundingRect(contour)
+    #
+    # # Обрезаем изображение до найденной полезной области
+    # cropped_image = stacked_image[:, y:y + h, x:x + w]
+    #
+    # # Вычисляем новую геопривязку
+    # new_transform = (
+    #     transform[0] + x * transform[1],  # Новое начало по X
+    #     transform[1],
+    #     transform[2],
+    #     transform[3] + y * transform[5],  # Новое начало по Y
+    #     transform[4],
+    #     transform[5],
+    # )
+    #
+    # # Визуализация
+    # plt.imshow(stacked_image_cv)
+    # plt.title('Изображение с реальной границей полезной зоны')
+    #
+    # # Рисуем реальную границу полезной зоны
+    # for contour in contours:
+    #     plt.plot(contour[:, 0, 0], contour[:, 0, 1], color='red', linewidth=2)
+    #
+    # # Отображаем изображение
+    # plt.show()
+    #
+    # print(f"Изображение обрезано до размеров: {cropped_image.shape[1]}x{cropped_image.shape[2]}")
+    # return cropped_image, new_transform, projection
+
+
+
+def remove_black_zones_and_save(dataset):
+    """
+    Удаляет черные зоны изображения, оставляя только полезную область.
+    Возвращает новый GDAL Dataset для дальнейшей обработки.
+
+    :param dataset: GDAL Dataset — открытый объект GDAL
+    :return: GDAL Dataset — новый объект с обрезанным изображением
+    """
+
+    if dataset is None:
+        raise ValueError("Входной GDAL Dataset равен None.")
+
+    # Извлечение метаинформации
+    transform = dataset.GetGeoTransform()
+    projection = dataset.GetProjection()
+    bands = dataset.RasterCount
+
+    if bands == 0:
+        raise ValueError("GDAL Dataset не содержит каналов.")
+
+    # Читаем изображение в массив
+    arrays = [dataset.GetRasterBand(i + 1).ReadAsArray() for i in range(bands)]
+    stacked_image = np.stack(arrays, axis=0)  # (bands, height, width)
+
+    # Создаем одноканальное изображение (градации серого)
+    gray = np.mean(stacked_image, axis=0).astype(np.uint8)  # (height, width)
+
+    # Бинаризация: черные пиксели (0) остаются черными, остальные белыми
+    _, binary = cv.threshold(gray, 1, 255, cv.THRESH_BINARY)
+
+    # Находим контуры полезной области
+    contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        raise ValueError("Все данные на изображении пустые или черные.")
+
+    # # Создаем маску по контурам
+    # all_contours = np.vstack(contours)
+    # mask = np.zeros_like(binary, dtype=np.uint8)
+    # cv.drawContours(mask, [all_contours], -1, color=255, thickness=cv.FILLED)
+    #
+    # # plt.figure(figsize=(6, 6))
+    # # plt.imshow(mask, cmap='gray')
+    # # plt.title("Маска по контурам")
+    # # plt.axis('off')
+    # # plt.show()
+    #
+    # # Применяем маску к каждому каналу
+    # masked_bands = [cv.bitwise_and(band, band, mask=mask) for band in stacked_image]
+    # masked_image = np.stack(masked_bands, axis=0)  # (bands, height, width)
+    #
+    # # Находим ограничивающий прямоугольник
+    # x, y, w, h = cv.boundingRect(all_contours)
+    #
+    # # Обрезаем изображение по найденным границам
+    # cropped_image = masked_image[:, y:y + h, x:x + w]
+    #
+    # # Обновляем геопривязку
+    # new_transform = (
+    #     transform[0] + x * transform[1],  # Новое начало по X
+    #     transform[1],
+    #     transform[2],
+    #     transform[3] + y * transform[5],  # Новое начало по Y
+    #     transform[4],
+    #     transform[5],
+    # )
+    #
+    # # Создаем временное изображение в памяти
+    # driver = gdal.GetDriverByName('MEM')
+    # output_ds = driver.Create(
+    #     '', w, h, bands, gdal_array.NumericTypeCodeToGDALTypeCode(cropped_image.dtype)
+    # )
+    # output_ds.SetGeoTransform(new_transform)
+    # output_ds.SetProjection(projection)
+    #
+    # # Записываем данные в объект GDAL
+    # for i in range(bands):
+    #     output_ds.GetRasterBand(i + 1).WriteArray(cropped_image[i])
+    #
+    # print(f"Черные зоны удалены. Обрезанное изображение готово для дальнейшей обработки.")
+    #
+    # return output_ds
+
+    # Объединяем все контуры и находим многоугольник
+    contour = max(contours, key=cv.contourArea)
+    epsilon = 0.01 * cv.arcLength(contour, True)
+    polygon = cv.approxPolyDP(contour, epsilon, True)
+
+    # Создаем маску на основе многоугольника
+    mask = np.zeros(binary.shape, dtype=np.uint8)
+    cv.fillPoly(mask, [polygon], 1)
+
+    # Обрезаем изображение по маске
+    masked_image = stacked_image * mask
+
+
+    # Находим границы полезной области
+    rows, cols = np.where(mask)
+    if len(rows) == 0 or len(cols) == 0:
+        raise ValueError("Полезная область изображения пуста.")
+    min_row, max_row = rows.min(), rows.max()
+    min_col, max_col = cols.min(), cols.max()
+
+    # Проверка необходимости обрезки
+    if (min_row == 0 and max_row == mask.shape[0] - 1 and min_col == 0 and
+            max_col == mask.shape[1] - 1):
+        print("Обрезка не требуется.")
+        return dataset
+
+    # Обрезаем изображение до найденных границ
+    cropped_image = masked_image[:, min_row:max_row + 1, min_col:max_col + 1]
+
+    # Отображение усредненного результата обрезки
+    mean_cropped_image = np.mean(cropped_image, axis=0)
+    plt.figure(figsize=(8, 8))
+    plt.imshow(mean_cropped_image, cmap='gray')
+    plt.title("Результат применения маски")
+    plt.axis('off')
+    plt.show()
+
+    # Проверка на пустой результат
+    if cropped_image.size == 0:
+        raise ValueError("Результат обрезки пуст.")
+
+    # Вычисляем новую геопривязку
+    new_transform = (
+        transform[0] + min_col * transform[1],  # Новое начало по X
+        transform[1],
+        transform[2],
+        transform[3] + min_row * transform[5],  # Новое начало по Y
+        transform[4],
+        transform[5],
+    )
+
+    # Создаем временное изображение в памяти
+    driver = gdal.GetDriverByName('MEM')
+    output_ds = driver.Create(
+        '', cropped_image.shape[2], cropped_image.shape[1], bands,
+        gdal_array.NumericTypeCodeToGDALTypeCode(cropped_image.dtype)
+    )
+    output_ds.SetGeoTransform(new_transform)
+    output_ds.SetProjection(projection)
+
+    # Записываем данные в новый объект GDAL
+    for i in range(bands):
+        output_ds.GetRasterBand(i + 1).WriteArray(cropped_image[i])
+
+    print(f"Черные зоны удалены. Изображение обрезано до точных границ многоугольника.")
+    return output_ds
+
+
+def remove_black_zones(dataset):
+    """
+    Удаляет черные зоны (где пиксели равны 0) из многоканального GeoTIFF и сохраняет только полезную область.
+
+    :param dataset: GDAL Dataset
+    :return: обрезанное изображение (numpy.ndarray), обновленная геопривязка, проекция
+    """
+
+    # Считываем все каналы
+    bands_data = []
+    for i in range(1, dataset.RasterCount + 1):
+        band = dataset.GetRasterBand(i)
+        bands_data.append(band.ReadAsArray())
+
+    # Конвертируем в numpy массив (H, W, C)
+    image_stack = np.stack(bands_data, axis=-1)
+
+    # Создаем бинарную маску: пиксели, где хотя бы один канал > 0
+    mask = np.any(image_stack > 0, axis=-1).astype(np.uint8)  # (H, W)
+
+    # Определяем координаты маски
+    coords = np.column_stack(np.where(mask > 0))
+    y_min, x_min = coords.min(axis=0)
+    y_max, x_max = coords.max(axis=0)
+
+    # Вырезаем полезную область
+    cropped_image = image_stack[y_min:y_max + 1, x_min:x_max + 1, :]
+
+    mean_cropped_image = np.mean(cropped_image, axis=0)
+    plt.figure(figsize=(8, 8))
+    plt.imshow(mean_cropped_image, cmap='gray')
+    plt.title("Результат применения маски")
+    plt.axis('off')
+    plt.show()
+
+    # Удаляем все за пределами маски, применяя ее к обрезанному изображению
+    final_mask = mask[y_min:y_max + 1, x_min:x_max + 1]
+    cropped_image[final_mask == 0] = 0
+
+    # Обновляем геопривязку
+    geotransform = dataset.GetGeoTransform()
+    new_geotransform = (
+        geotransform[0] + x_min * geotransform[1], geotransform[1], geotransform[2],
+        geotransform[3] + y_min * geotransform[5], geotransform[4], geotransform[5]
+    )
+
+    return cropped_image, new_geotransform, dataset.GetProjection()
+
+
+def save_cropped_tiff(cropped_image, output_path, geotransform, projection):
+    """
+    Сохраняет обрезанное изображение в формате GeoTIFF.
+
+    :param cropped_image: numpy массив обрезанного изображения
+    :param output_path: путь для сохранения
+    :param geotransform: новая геопривязка
+    :param projection: проекция исходного изображения
+    """
+    driver = gdal.GetDriverByName("GTiff")
+    bands = cropped_image.shape[-1] if len(cropped_image.shape) == 3 else 1
+    height, width = cropped_image.shape[:2]
+
+    # Создаем новый файл
+    output_dataset = driver.Create(output_path, width, height, bands, gdal.GDT_Byte)
+
+    # Записываем данные в новый файл
+    for i in range(bands):
+        output_dataset.GetRasterBand(i + 1).WriteArray(cropped_image[:, :, i] if bands > 1 else cropped_image)
+
+    # Применяем геопривязку и проекцию
+    output_dataset.SetGeoTransform(geotransform)
+    output_dataset.SetProjection(projection)
+
+    # Закрываем файл
+    output_dataset = None
+
+if __name__ == "__main__":
+    # file_path = 'data/multiband_imagery.tif'
+    file_path = '050160619050_01_P001_MUL/22MAR06104502-M3DS_R1C1-050160619050_01_P001.TIF'
+    # file_path = 'cropped_image.TIF'
+    output_path = "cropped_image.TIF"
+    # imagery_ds, num_bands = open_multiband_image(file_path)
+
+    # Удаляем черные зоны
+    cropped_image, new_geotransform, projection = remove_black_zones(imagery_ds)
+    # Сохраняем обрезанное изображение
+    save_cropped_tiff(cropped_image, output_path, new_geotransform, projection)
+    print(f"Обрезанное изображение сохранено в: {output_path}")
