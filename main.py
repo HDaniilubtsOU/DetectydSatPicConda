@@ -5,10 +5,11 @@ import matplotlib.pyplot as plt
 from matplotlib import colormaps
 import matplotlib.image as mpimg
 import numpy as np
-from skimage import exposure
+from skimage_pac import exposure
 import textwrap
 
 import arvi
+import cloud_processing
 import evi
 import mndwi
 import ndvi
@@ -19,12 +20,32 @@ import wri
 import types_normalize
 import visualizations_plot
 import visualizations_plot_histogram
+import tif_in_png
 
 
 # нужно написать функции для 3 видов спутников:
-# 1) Спутники наблюдения за Землей (Landsat: 9 каналов) 2) Метеорологические спутники (NOAA AVHRR: 5 кан.)
-# 3) Гиперспектральные спутники (Hyperion: до 220 спектральных каналов в узких диапазонах,
-# охватывающих видимый и инфракрасный спектр)
+# 1) Спутники наблюдения за Землей (Landsat: 9 каналов)
+# 2) Метеорологические спутники (NOAA AVHRR: 5 кан.)
+# 3) Гиперспектральные спутники (Hyperion: до 220 спектральных каналов в узких диапазонах, охватывающих видимый и инфракрасный спектр)
+
+
+# Cloud processing
+# Регрессия и ее виды
+# библиотеки skimage(старый деп) и sklearn(неиронки)
+
+
+# заняться Атмосферной коррекцией
+# Общие алгоритмы атмосферной коррекции:
+# ATCOR2 (Atmospheric Correction for Flat Terrain 2)
+# FLAASH (Fast Line-of-Sight Atmospheric Analysis of Spectral Hypercubes)
+# DOS1 (Dark Object Subtraction 1)
+# LaSRC (Land Surface Reflectance Code)
+# iCOR (Image Correction for Atmospheric Effects)
+
+
+# присутствуют индексы которые могут дать информацию исключительно из RGB
+
+# GIS-based analysis as independent predictor variables
 
 
 # Функция для открытия изображения
@@ -42,6 +63,64 @@ def open_multiband_image(file_path):
     bands = dataset.RasterCount
     print(f"Количество каналов: {bands}")
     return dataset, bands
+
+
+def extract_metadata(file_path):
+    """
+    Извлекает метаданные из многоканального изображения с помощью GDAL и разделяет их по переменным.
+
+    :param file_path: Путь к файлу изображения
+    :return: Словарь с метаданными
+    """
+    # Открываем файл
+    dataset = gdal.Open(file_path, gdal.GA_ReadOnly)
+    if dataset is None:
+        raise FileNotFoundError(f"Не удалось открыть файл {file_path}")
+
+    # Извлекаем основные метаданные
+    rows = dataset.RasterYSize
+    cols = dataset.RasterXSize
+    geo_transform = dataset.GetGeoTransform()
+    projection = dataset.GetProjection()
+
+    # Разбиваем geo_transform на составляющие
+    origin_x = geo_transform[0]  # Координата X верхнего левого угла
+    pixel_width = geo_transform[1]  # Размер пикселя по оси X
+    rotation_x = geo_transform[2]  # Поворот по оси X
+    origin_y = geo_transform[3]  # Координата Y верхнего левого угла
+    rotation_y = geo_transform[4]  # Поворот по оси Y
+    pixel_height = geo_transform[5]  # Размер пикселя по оси Y (отрицательный)
+
+    # Формируем словарь с результатами
+    metadata = {
+        "rows": rows,
+        "cols": cols,
+        "geo_transform": {
+            "origin_x": origin_x,
+            "pixel_width": pixel_width,
+            "rotation_x": rotation_x,
+            "origin_y": origin_y,
+            "rotation_y": rotation_y,
+            "pixel_height": pixel_height
+        },
+        "projection": projection
+    }
+
+    return metadata
+
+
+def display_channel_array(channel_array, channel_name):
+    """
+    Отображает массив данных для указанного канала.
+
+    :param channel_array: Массив данных канала
+    :param channel_name: Имя канала
+    """
+    if channel_array is None:
+        print(f"Канал {channel_name} отсутствует.")
+    else:
+        print(f"Массив данных для канала {channel_name}:")
+        print(channel_array)
 
 
 # def remove_black_zones_and_save_simple(dataset):
@@ -187,6 +266,10 @@ def open_multiband_image(file_path):
 #     #
 #     # return output_ds
 
+# нужно подумать про удаление за пределами маски, и оставляете только пиксели внутри самой крупной фигуры.
+# Это приводит к тому, что размер массива становится (bands, N), где 𝑁 — количество пикселей внутри маски.
+# Это одномерный массив, который нельзя преобразовать обратно в исходный двумерный размер (height, width).
+# ЕСТЬ ЛИ ВОЗМОЖНОСТЬ ВЫКИНУТЬ ИЗ МАССИВА ФИГУРУ И ПРИ ЭТОМ СОХРАНИТЬ РАЗМЕРНОСТЬ МАССИВА
 def remove_black_zones_and_save_simple(dataset):
     """
     Проверяет изображение на чёрные зоны, добавляет альфа-канал для прозрачности, обрезает полезную область.
@@ -277,14 +360,21 @@ def remove_black_zones_and_save_simple(dataset):
     x_min, x_max = np.min(indices[1]), np.max(indices[1])  # Минимальные и максимальные значения по ширине
     y_min, y_max = np.min(indices[0]), np.max(indices[0])  # Минимальные и максимальные значения по высоте
 
+    # plt.imshow(mask, cmap='gray')
+    # plt.axvline(x=x_min, color='r')
+    # plt.axvline(x=x_max, color='r')
+    # plt.axhline(y=y_min, color='r')
+    # plt.axhline(y=y_max, color='r')
+    # plt.show()
+
     # Обрезаем изображение по этим координатам
     cropped_image = transparent_image[:, y_min:y_max + 1, x_min:x_max + 1]
 
-    plt.figure(figsize=(8, 8))
-    plt.imshow(cropped_image.transpose(1, 2, 0))  # Перекладываем оси для отображения
-    plt.title("Обрезанное изображение")
-    plt.axis('off')
-    plt.show()
+    # plt.figure(figsize=(8, 8))
+    # plt.imshow(cropped_image.transpose(1, 2, 0))  # Перекладываем оси для отображения
+    # plt.title("Обрезанное изображение")
+    # plt.axis('off')
+    # plt.show()
 
     # Обновляем геопривязку
     new_transform = (
@@ -404,8 +494,24 @@ def stretch_contrast(input_band):
 # Основной скрипт
 if __name__ == "__main__":
     # file_path = 'data/multiband_imagery.tif'
-    file_path = '050160619050_01_P001_MUL/22MAR06104502-M3DS_R1C1-050160619050_01_P001.TIF'
+    file_path = '050160619050_01_P001_MUL/22MAR06104502-M3DS_R3C5-050160619050_01_P001.TIF'
+    try:
+        metadata = extract_metadata(file_path)
+        print("")
+        print("Извлеченные метаданные:")
+        print(f"Размеры: {metadata['rows']} строк, {metadata['cols']} столбцов")
+        print("")
+        print("Геопривязка:")
+        for key, value in metadata['geo_transform'].items():
+            print(f"  {key}: {value}")
+        print("")
+        print(f"Система координат: {metadata['projection']}")
+    except FileNotFoundError as e:
+        print(e)
+
     imagery_ds, num_bands = open_multiband_image(file_path)
+
+
 
     # cropped_image = remove_black_zones_and_save_simple(imagery_ds)
     # Применение функции
@@ -440,8 +546,12 @@ if __name__ == "__main__":
     # print(f"Blue Channel Min: {Blue.min()}, Max: {Blue.max()}")
     # print(f"NIR Channel Min: {NIR.min()}, Max: {NIR.max()}")
 
+    # Демонстрация массива для канала Blue
+    display_channel_array(Blue, "Blue")
+
     for channel_name in band_names:
         if channel_dict.get(channel_name) is None:
+            print("")
             print(f"Channel {channel_name} is not available.")
     print("\n")
 
@@ -506,6 +616,15 @@ if __name__ == "__main__":
             types_normalize.normalize_band_global_max(Red), \
             types_normalize.normalize_band_global_max(Green),\
             types_normalize.normalize_band_global_max(Blue)
+        print("red1 shape:", red1.shape)
+        print("green1 shape:", green1.shape)
+        print("blue1 shape:", blue1.shape)
+        # Простой вывод первого набора нормализованных данных
+        plt.figure(figsize=(12, 4))
+        plt.subplot(1, 3, 1)
+        plt.imshow(np.stack((red1, green1, blue1), axis=-1))
+        plt.title("RGB (global max normalization)")
+
         red2, green2, blue2 = \
             types_normalize.line_normalize(Red), \
             types_normalize.line_normalize(Green), \
@@ -563,6 +682,11 @@ if __name__ == "__main__":
 #         #     red3, green3, blue3,
 #         #     titles=("Default Normalize Histogram", "Line Normalize Histogram", "Clip Normalize Histogram")
 #         # )
+#         visualizations_plot_histogram.plot_histograms_three_single_channel2(
+#             red1, red2, red3,
+#             titles=("red1", "red2", "red3"),
+#             bins=128, color='green', alpha=0.7
+#         )
 #         # -----------------------------------Histograms---------------------------------------------------------------
 # -------------------------------------stretch_contrast---------------------------------------------------------------
 
@@ -588,11 +712,11 @@ if __name__ == "__main__":
         #     colormap='viridis'  # Например, можно использовать цветовую карту 'viridis'
         # )
         # -----------------------------------Histograms---------------------------------------------------------------
-        # Построение гистограмм
-        visualizations_plot_histogram.plot_histograms_three_single_channel(
-            nir1, nir2, nir3,
-            titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize")
-        )
+        # # Построение гистограмм
+        # visualizations_plot_histogram.plot_histograms_three_single_channel(
+        #     nir1, nir2, nir3,
+        #     titles=("NIR Original", "NIR Line Normalize", "NIR Clip Normalize")
+        # )
         # -----------------------------------Histograms---------------------------------------------------------------
 
 # ---------------------------------------arvi_normalize---------------------------------------------------------------
@@ -636,8 +760,10 @@ if __name__ == "__main__":
         # )
 
         '''Гистограмма ARVI'''
+        # # тест гистограммы (которая бесполезная)
         # visualizations_plot_histogram.plot_histogram(arvi_classification_normalize_band_global_max,
         #                                              title="Arvi Histogram", bins=30, color="red", range=(-1, 1))
+
 # ---------------------------------------arvi_normalize---------------------------------------------------------------
 
 # ----------------------------------------EVI_normalize---------------------------------------------------------------
@@ -762,6 +888,72 @@ if __name__ == "__main__":
 
     # 3 rgb -> 2 nir -> 1 ndvi? (гистограма говорит 3) -> непонятно classification ->
 
+# ______________________________________________________________________________________________________________________
+#         # Обнаружение облаков
+#         cloud_mask = cloud_processing.detect_clouds_spectral(ndvi_normalize_with_delite_emissions)
+#
+#         # Считать все каналы в 3D массив
+#         dataset = gdal.Open(file_path)
+#         image = np.stack([dataset.GetRasterBand(i + 1).ReadAsArray() for i in range(dataset.RasterCount)], axis=2)
+#         # # Удалить облака
+#         # clean_image = cloud_processing.remove_clouds(image, cloud_mask, nodata_value=0)
+#
+#         # Убедимся, что cloud_mask — это логическая маска (1 - облака, 0 - чисто)
+#         cloud_mask2 = cloud_mask.astype(bool)
+#         # # Заполнить облачные области
+#         # filled_image = cloud_processing.fill_clouds(image, cloud_mask)
+#         filled_image, metadata = cloud_processing.fill_clouds_with_metadata(image, cloud_mask2, new_transform, projection)
+#
+#         asdas = stretch_contrast(filled_image)
+#
+#         # Маска облаков
+#         visualizations_plot.plot_evi(filled_image)
+#         rgb_image = cloud_processing.extract_rgb(asdas)
+#         plt.imshow(rgb_image)
+#         plt.axis('off')
+#         plt.show()
+#
+#         # # inverted_mask = cv.bitwise_not(cloud_mask)
+#         # plt.figure(figsize=(6, 6))
+#         # plt.imshow(filled_image, cmap='gray')
+#         # plt.title("Маска по контурам")
+#         # plt.axis('off')
+#         # plt.show()
+#
+#
+#         # ПОПЫТКА НОМЕР 2
+#         brightness = (Red + Green + Blue) / 3
+#         ndvi = (NIR - Red) / (NIR + Red + 1e-6)  # NDVI расчет
+#         # # Удаляем облака
+#         # processed_data = cloud_processing.remove_clouds1(brightness, ndvi, np.array(channels))
+#         # cloud_processing.display_image(processed_data)
+#         # processed_data2 = cloud_processing.remove_clouds_combined(brightness, ndvi, np.array(channels))
+#         # cloud_processing.display_image(processed_data2)
+#
+#
+#         # cloud_mask3 = (brightness > 2000) & (ndvi < 0.1)
+#         # # Вычисляем маску облаков
+#         cloud_mask3 = cloud_processing.detect_clouds_combined(
+#             ndvi=ndvi,
+#             brightness=brightness,
+#             swir=SWIR1,  # Используем SWIR1, если доступно
+#             ndvi_threshold=0.1,  # Увеличиваем порог NDVI для более точного результата
+#             brightness_threshold=2000,
+#             swir_threshold=0.5  # Порог для SWIR
+#         )
+#         '''интересный результат'''
+#         # spatial_data = cloud_processing.spatial_interpolation(np.array(channels), cloud_mask)
+#         # cloud_processing.display_image(spatial_data)
+#         """!!!ТУТ ОСТАНОВИЛСЯ В РАБОТЕ С УДАЛЕНИЕМ ОБЛАВКОВ!!!"""
+#         spatial_data = cloud_processing.enhanced_spatial_interpolation(np.array(channels), cloud_mask3)
+#         cloud_processing.display_image(spatial_data)
+#
+#         # geometric_data = cloud_processing.geometric_reconstruction(np.array(channels), cloud_mask)
+#         # cloud_processing.display_image(geometric_data)
+#
+#         # texture_data = cloud_processing.texture_analysis_reconstruction(np.array(channels), cloud_mask)
+#         # cloud_processing.display_image(texture_data)
+
 # ----------------------------------------ndvi_normalize---------------------------------------------------------------
 
 # ---------------------------------------ndwi_normalize---------------------------------------------------------------
@@ -823,6 +1015,47 @@ if __name__ == "__main__":
 # ---------------------------------------savi_normalize---------------------------------------------------------------
 
 
+    if Red is not None and Green is not None and Blue is not None:
+        # output_png = "output/test_tif_in_png.png"
+        # output_png = "output/test_rgb_to_rgba.png"
+        output_png = "output/rgba_black_transparent.png"
+        # output_png = "output/rgba_region_transparent.png"
+
+
+        def is_black(pixel_array):
+            """Условие: Сделать прозрачным пиксели, которые близки к чёрному."""
+            threshold = 0.1  # Порог, ниже которого пиксель считается чёрным
+            return np.all(pixel_array < threshold, axis=-1)
+
+
+        def is_in_region(pixel_array):
+            """Условие: Сделать прозрачной центральную область изображения."""
+            rows, cols = pixel_array.shape[:2]
+            row_start, row_end = rows // 4, 3 * rows // 4
+            col_start, col_end = cols // 4, 3 * cols // 4
+
+            mask = np.zeros((rows, cols), dtype=bool)
+            mask[row_start:row_end, col_start:col_end] = True
+            return mask
+
+
+        alpha_value = 0.1  # Канал прозрачности
+        rgb = np.dstack([types_normalize.normalize_with_delite_emissions(Red),
+                         types_normalize.normalize_with_delite_emissions(Green),
+                         types_normalize.normalize_with_delite_emissions(Blue)])
+        alpha_gradient = np.linspace(0, 1, rgb.shape[0])[:, None] * np.ones((1, rgb.shape[1]))
+
+        # # Конвертация массива в PNG
+        # try:
+        #     # result_file = tif_in_png.convert_normalized_array_to_png(rgb, output_png)
+        #     # result_file = tif_in_png.convert_rgb_to_rgba_and_save(rgb, output_png, alpha_gradient)
+        #     result_file = tif_in_png.convert_rgb_to_rgba_with_condition(rgb, output_png, is_black)
+        #     # result_file = tif_in_png.convert_rgb_to_rgba_with_condition(rgb, output_png, is_in_region)
+        #     print(f"Изображение сохранено в: {result_file}")
+        # except ValueError as e:
+        #     print(f"Ошибка: {e}")
+
+
 
 
 
@@ -879,4 +1112,3 @@ if __name__ == "__main__":
     if TIR is not None:
         visualizations_plot.plot_band(types_normalize.normalize_band_global_max(TIR),
                                       "Тепловое инфракрасное излучение (TIR)")
-

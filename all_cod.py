@@ -3,7 +3,7 @@ from osgeo import ogr, osr, gdal_array, gdalconst
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.image as mpimg
-from skimage import exposure
+from skimage_pac import exposure
 import cv2 as cv
 
 
